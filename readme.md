@@ -74,7 +74,7 @@ year          = {2023},
   ```
 
 
-If it's the first time you launch the container, you need to build extensions.
+If it's the first time you launch the container, you need to build extensions. Run this command *inside* the Docker container.
 ```
 bash build_all.sh
 ```
@@ -84,40 +84,48 @@ Later you can execute into the container without re-build.
 docker exec -it foundationpose bash
 ```
 
-# Env setup option 2: conda (experimental)
+For more recent GPU such as 4090, refer to [this](https://github.com/NVlabs/FoundationPose/issues/27).
+In short, do the following:
+```
+docker pull shingarey/foundationpose_custom_cuda121:latest
+```
+Then modify the bash script to use this image instead of `foundationpose:latest`.
 
-- Setup conda environment
+
+# Env setup option 2: conda (local)
+
+1) **Create the environment** (C++ build deps + Python; all on `conda-forge`):
 
 ```bash
-# create conda environment
-conda create -n foundationpose python=3.9
-
-# activate conda environment
+conda env create -f environment.yml
 conda activate foundationpose
-
-# Install Eigen3 3.4.0 under conda environment
-conda install conda-forge::eigen=3.4.0
-
-# install dependencies
-python -m pip install -r requirements.txt
-
-# Install NVDiffRast
-python -m pip install --quiet --no-cache-dir git+https://github.com/NVlabs/nvdiffrast.git
-
-# Kaolin (Optional, needed if running model-free setup)
-python -m pip install --quiet --no-cache-dir kaolin==0.15.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.0.0_cu118.html
-
-# PyTorch3D
-python -m pip install --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py39_cu118_pyt200/download.html
-
-# Build extensions
-<<<<<<< Updated upstream
-=======
-CMAKE_PREFIX_PATH=$CONDA_PREFIX/lib/python3.9/site-packages/pybind11/share/cmake/pybind11 bash build_all_conda.sh
->>>>>>> Stashed changes
-CMAKE_PREFIX_PATH=$CONDA_PREFIX/lib/python3.9/site-packages/pybind11/share/cmake/pybind11:/home/shaol/anaconda3/envs/py39/include/eigen3 bash build_all_conda.sh
-# export CMAKE_PREFIX_PATH=$CONDA_PREFIX/envs/py38/lib/python3.8/site-packages/pybind11/share/cmake/pybind11 bash build_all_conda.sh
 ```
+
+2) **Install PyTorch** with a CUDA build that matches your machine. The [PyTorch “Get Started”](https://pytorch.org/get-started/locally/) page lists the right `--index-url` (for example `cu124` works on most current NVIDIA drivers). Example:
+
+```bash
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+```
+
+3) **Install PyTorch3D and NVDiffRast** (compile from source; needs the CUDA toolkit for `nvcc`. Point `CUDA_HOME` at your install, e.g. `/usr/local/cuda-12.8` or `/usr/local/cuda`):
+
+```bash
+export CUDA_HOME=/usr/local/cuda   # or e.g. /usr/local/cuda-12.8
+export PATH="$CUDA_HOME/bin:$PATH"
+python -m pip install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git"
+python -m pip install --no-build-isolation "git+https://github.com/NVlabs/nvdiffrast.git"
+```
+
+`--no-build-isolation` is required so the build can see the `torch` you already installed.
+
+4) **Install remaining Python dependencies** and **build the `mycpp` extension** (BundleSDF’s `mycuda` step is optional; skip it unless you need the model-free / NeRF path):
+
+```bash
+python -m pip install -r requirements.txt
+bash build_all_conda.sh
+```
+
+5) **Optional — Kaolin** (only for the model-free setup; version must match your PyTorch/CUDA—see the [Kaolin install docs](https://kaolin.readthedocs.io/en/latest/notes/installation.html)).
 
 
 # Run model-based demo
@@ -163,7 +171,7 @@ python run_ycb_video.py --ycbv_dir /mnt/9a72c439-d0a7-45e8-8d20-d7a235d02763/DAT
 
 - For setting up on Windows, refer to [this](https://github.com/NVlabs/FoundationPose/issues/148).
 
-- If you are getting unreasonable results, check [this](https://github.com/NVlabs/FoundationPose/issues/44#issuecomment-2048141043)
+- If you are getting unreasonable results, check [this](https://github.com/NVlabs/FoundationPose/issues/44#issuecomment-2048141043) and [this](https://github.com/030422Lee/FoundationPose_manual)
 
 # Training data download
 Our training data include scenes using 3D assets from GSO and Objaverse, rendered with high quality photo-realism and large domain randomization. Each data point includes **RGB, depth, object pose, camera pose, instance segmentation, 2D bounding box**. [[Google Drive]](https://drive.google.com/drive/folders/1s4pB6p4ApfWMiMjmTXOFco8dHbNXikp-?usp=sharing).
@@ -172,6 +180,11 @@ Our training data include scenes using 3D assets from GSO and Objaverse, rendere
 
 - To parse the camera params including extrinsics and intrinsics
   ```
+  glcam_in_cvcam = np.array([[1,0,0,0],
+                          [0,-1,0,0],
+                          [0,0,-1,0],
+                          [0,0,0,1]]).astype(float)
+  W, H = camera_params["renderProductResolution"]
   with open(f'{base_dir}/camera_params/camera_params_000000.json','r') as ff:
     camera_params = json.load(ff)
   world_in_glcam = np.array(camera_params['cameraViewTransform']).reshape(4,4).T
